@@ -241,3 +241,103 @@ func TestExtendedProtCfgOptsMarshalBinary(t *testing.T) {
 		})
 	}
 }
+
+func TestExtendedProtCfgOptsOperatorContainersRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		input     []byte
+		unmarshal func(*ExtendedProtCfgOpts, []byte) error
+		expected  []OperatorContainer
+	}{
+		{
+			name: "FromMs",
+			input: []byte{
+				0x80,
+				0x00, 0x0d, 0x00, // DNS IPv4 Req, 0B
+				0xff, 0x00, 0x00, // operator-specific FF00H, 0B
+				0xff, 0x02, 0x03, // operator-specific FF02H, 3B
+				0x01, 0x02, 0x03,
+				0xff, 0xff, 0x01, // operator-specific FFFFH, 1B
+				0xaa,
+			},
+			unmarshal: (*ExtendedProtCfgOpts).UnmarshalFromMs,
+			expected: []OperatorContainer{
+				{ID: 0xff00, Contents: []byte{}},
+				{ID: 0xff02, Contents: []byte{0x01, 0x02, 0x03}},
+				{ID: 0xffff, Contents: []byte{0xaa}},
+			},
+		},
+		{
+			name: "FromNw",
+			input: []byte{
+				0x80,
+				0x00, 0x0d, 0x04, // DNS IPv4, 4B
+				0x08, 0x08, 0x08, 0x08,
+				0xff, 0x01, 0x02, // operator-specific FF01H, 2B
+				0x10, 0x20,
+				0xff, 0x03, 0x00, // operator-specific FF03H, 0B
+				0xff, 0xff, 0x01, // operator-specific FFFFH, 1B
+				0xbb,
+			},
+			unmarshal: (*ExtendedProtCfgOpts).UnmarshalFromNw,
+			expected: []OperatorContainer{
+				{ID: 0xff01, Contents: []byte{0x10, 0x20}},
+				{ID: 0xff03, Contents: []byte{}},
+				{ID: 0xffff, Contents: []byte{0xbb}},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			opts := new(ExtendedProtCfgOpts)
+			require.NoError(t, tc.unmarshal(opts, tc.input))
+			var got []OperatorContainer
+			if opts.FromMs != nil {
+				got = opts.FromMs.OperatorContainers
+			} else {
+				got = opts.FromNw.OperatorContainers
+			}
+			require.Equal(t, tc.expected, got)
+
+			b, err := opts.MarshalBinary()
+			require.NoError(t, err)
+			require.Equal(t, tc.input, b)
+		})
+	}
+}
+
+func TestExtendedProtCfgOptsMarshalBinaryRejectsBadOperatorContainer(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name  string
+		input *ExtendedProtCfgOpts
+	}{
+		{
+			name: "FromMs ID below FF00H",
+			input: &ExtendedProtCfgOpts{FromMs: &ExtCfgOptFromMs{
+				OperatorContainers: []OperatorContainer{{ID: 0xfeff}},
+			}},
+		},
+		{
+			name: "FromNw contents longer than 255B",
+			input: &ExtendedProtCfgOpts{FromNw: &ExtCfgOptFromNw{
+				OperatorContainers: []OperatorContainer{{ID: 0xff01, Contents: make([]byte, 256)}},
+			}},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := tc.input.MarshalBinary()
+			require.Error(t, err)
+		})
+	}
+}

@@ -272,6 +272,14 @@ func (i *MobileId5GS) unmarshalBinary_SUCISupiImsi(b []byte) error {
 		i.CipherVal = i.SchemeOutput[33 : len(i.SchemeOutput)-8]
 		i.MACTag = i.SchemeOutput[len(i.SchemeOutput)-8:]
 	default:
+		// 3GPP TS 33.501 Annex C: 0x3-0xB are reserved for future standardized
+		// protection schemes and 0xC-0xF for home-operator proprietary ones.
+		// Reject them here rather than parsing the remainder of the SUCI as an
+		// unrecognised scheme output, which would let a Registration Request
+		// through to the AUSF only to be rejected there.
+		return errors.Errorf(
+			"unmarshalBinary_SUCISupiImsi: unsupported protection scheme ID %d",
+			i.ProtectionSchemeId)
 	}
 
 	i.SchemeOutput = nil
@@ -314,9 +322,15 @@ func (i *MobileId5GS) marshalBinary_SUCISupiImsi() ([]byte, error) {
 		// This handles both even and odd MSIN lengths correctly
 		blen = 8 + (i.MSINLength+1)/2
 	case ECIESSchemeProfileA:
+		if len(i.ECCEphPubKey) != 32 || len(i.MACTag) != 8 {
+			return nil, errors.Errorf("Profile A requires a 32-byte ephemeral key and 8-byte MAC")
+		}
 		blen = 8 + 32 + 8 + len(i.CipherVal)
 	case ECIESSchemeProfileB:
-		blen = 12 + 33 + 8 + len(i.CipherVal)
+		if len(i.ECCEphPubKey) != 33 || len(i.MACTag) != 8 {
+			return nil, errors.Errorf("Profile B requires a 33-byte ephemeral key and 8-byte MAC")
+		}
+		blen = 8 + 33 + 8 + len(i.CipherVal)
 	default:
 		return nil, errors.Errorf("marshalBinary_SUCISupiImsi : bad i.ProtectionSchemeId(%d)", i.ProtectionSchemeId)
 	}

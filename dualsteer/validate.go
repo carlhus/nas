@@ -88,6 +88,11 @@ func (r *Rule) validate() error {
 		if !r.Priority.PreferredLeg.valid() {
 			return fmt.Errorf("%w: Priority-based needs a preferred Leg", ErrInvalidRuleSet)
 		}
+		// The device returns to the preferred Leg only while RTT < maxRtt - RTT margin and
+		// loss < maxLoss - loss margin, so a margin that reaches its threshold never lets it back.
+		if p := r.Priority; p.RTTMargin >= p.MaxRTT || p.LossMargin >= p.MaxLoss {
+			return fmt.Errorf("%w: Priority-based margins must be below maxRtt and maxLoss", ErrInvalidRuleSet)
+		}
 	case SteeringSmallestDelay:
 	default:
 		return fmt.Errorf("%w: Steering mode %d", ErrInvalidRuleSet, r.Mode)

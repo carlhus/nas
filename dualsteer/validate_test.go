@@ -129,6 +129,24 @@ func TestValidate(t *testing.T) {
 		}, ErrInvalidRuleSet},
 		{"AS without active Leg", func(rs *RuleSet) { rs.Rules[1].ActiveLeg = 0 }, ErrInvalidRuleSet},
 		{"PB without preferred Leg", func(rs *RuleSet) { rs.Rules[0].Mode = SteeringPriorityBased }, ErrInvalidRuleSet},
+		{"PB RTT margin reaches maxRtt", func(rs *RuleSet) {
+			rs.Rules[0].Mode = SteeringPriorityBased
+			rs.Rules[0].Priority = PriorityParams{
+				PreferredLeg: AccessTN, MaxRTT: 150, MaxLoss: 20, RTTMargin: 150, LossMargin: 5,
+			}
+		}, ErrInvalidRuleSet},
+		{"PB loss margin above maxLoss", func(rs *RuleSet) {
+			rs.Rules[0].Mode = SteeringPriorityBased
+			rs.Rules[0].Priority = PriorityParams{
+				PreferredLeg: AccessTN, MaxRTT: 150, MaxLoss: 20, RTTMargin: 30, LossMargin: 30,
+			}
+		}, ErrInvalidRuleSet},
+		{"PB maxLoss 0", func(rs *RuleSet) {
+			rs.Rules[0].Mode = SteeringPriorityBased
+			rs.Rules[0].Priority = PriorityParams{
+				PreferredLeg: AccessTN, MaxRTT: 150, MaxLoss: 0, RTTMargin: 30, LossMargin: 0,
+			}
+		}, ErrInvalidRuleSet},
 		{"unknown Steering mode", func(rs *RuleSet) { rs.Rules[0].Mode = 4 }, ErrInvalidRuleSet},
 		{"unknown transmission mode", func(rs *RuleSet) { rs.Transmission = 0 }, ErrInvalidRuleSet},
 		{"K 0", func(rs *RuleSet) { rs.Params.K = 0 }, ErrInvalidRuleSet},

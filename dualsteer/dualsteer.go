@@ -248,8 +248,10 @@ type PacketFilter struct {
 	RemotePort *PortRange
 }
 
-// PriorityParams are the Priority-based mode parameters. maxRtt and margins
-// on RTT are in ms; loss values are in permille.
+// PriorityParams are the Priority-based mode parameters. The device leaves the
+// preferred Leg when RTT exceeds MaxRTT or loss exceeds MaxLoss, and returns
+// only while RTT < MaxRTT-RTTMargin and loss < MaxLoss-LossMargin. RTT values
+// are in ms, loss values in permille; each margin must be below its threshold.
 type PriorityParams struct {
 	PreferredLeg Access
 	MaxRTT       uint16

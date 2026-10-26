@@ -1,7 +1,9 @@
 package ie
 
 import (
+	"bytes"
 	"encoding/binary"
+	"math"
 	"net"
 
 	"github.com/pkg/errors"
@@ -22,6 +24,7 @@ type ExtCfgOptFromMs struct {
 	DNSV6Req              bool
 	P_CSCF_IPv4AddrReq    bool
 	UEStatus3GPPPSDataOff UEStatus3GPPPSDataOff
+	OperatorContainers    []OperatorContainer
 }
 
 // Network --> MS
@@ -31,7 +34,18 @@ type ExtCfgOptFromNw struct {
 	DNSIPv4Addr                    net.IP
 	P_CSCF_IPv4Addr                net.IP
 	Indication3GPPPSDataOffSupport bool
+	OperatorContainers             []OperatorContainer
 }
+
+// OperatorContainer is an operator-specific container (FF00H-FFFFH), TS 24.008 10.5.6.3.
+// Its contents are kept as raw bytes, in the order they appear in the ePCO.
+type OperatorContainer struct {
+	ID       uint16
+	Contents []byte
+}
+
+// TS 24.008 10.5.6.3, both directions
+const OperatorSpecificContainerMin uint16 = 0xFF00
 
 // ExtendedProtCfgOpts is detailed in 10.5.6.3A Extended Prot configuration options, 24.00
 type ExtendedProtCfgOpts struct {
@@ -201,6 +215,10 @@ func (i *ExtendedProtCfgOpts) UnmarshalFromMs(b []byte) error {
 		case ChlgHandshakeAuthProtUL:
 		case InternetProtCtrlProtUL:
 		default:
+			if protId >= OperatorSpecificContainerMin {
+				i.FromMs.OperatorContainers = append(i.FromMs.OperatorContainers,
+					OperatorContainer{ID: protId, Contents: bytes.Clone(b[ofs : ofs+int(cntLen)])})
+			}
 		}
 		ofs += int(cntLen)
 	}
@@ -283,6 +301,10 @@ func (i *ExtendedProtCfgOpts) UnmarshalFromNw(b []byte) error {
 		case ATSSSRspWithTheLenOf2OctetsDL:
 		case DNSServerSecInfoWithLenOf2OctetsDL:
 		default:
+			if protId >= OperatorSpecificContainerMin {
+				i.FromNw.OperatorContainers = append(i.FromNw.OperatorContainers,
+					OperatorContainer{ID: protId, Contents: bytes.Clone(b[ofs : ofs+int(cntLen)])})
+			}
 		}
 		ofs += int(cntLen)
 	}
@@ -296,6 +318,22 @@ func appendToBuf(b []byte, protId uint16, content []byte) []byte {
 	b = append(b, byte(len(content)))
 	b = append(b, content[:]...)
 	return b
+}
+
+func appendOperatorContainers(b []byte, containers []OperatorContainer) ([]byte, error) {
+	for _, c := range containers {
+		if c.ID < OperatorSpecificContainerMin {
+			return nil, errors.Errorf(
+				"ExtendedProtCfgOpts: appendOperatorContainers() container ID %#04x not in FF00H-FFFFH", c.ID)
+		}
+		if len(c.Contents) > math.MaxUint8 {
+			return nil, errors.Errorf(
+				"ExtendedProtCfgOpts: appendOperatorContainers() container %#04x contents too long (%d>%d)",
+				c.ID, len(c.Contents), math.MaxUint8)
+		}
+		b = appendToBuf(b, c.ID, c.Contents)
+	}
+	return b, nil
 }
 
 func (i *ExtendedProtCfgOpts) marshalFromMs() ([]byte, error) {
@@ -327,7 +365,7 @@ func (i *ExtendedProtCfgOpts) marshalFromMs() ([]byte, error) {
 		content := []byte{byte(ms.UEStatus3GPPPSDataOff)}
 		b = appendToBuf(b, UEStatus3GPPPSDataOffUL, content)
 	}
-	return b, nil
+	return appendOperatorContainers(b, ms.OperatorContainers)
 }
 
 func (i *ExtendedProtCfgOpts) marshalFromNw() ([]byte, error) {
@@ -382,7 +420,7 @@ func (i *ExtendedProtCfgOpts) marshalFromNw() ([]byte, error) {
 	if nw.Indication3GPPPSDataOffSupport {
 		b = appendToBuf(b, Indication3GPPPSDataOffSupportDL, nil)
 	}
-	return b, nil
+	return appendOperatorContainers(b, nw.OperatorContainers)
 }
 
 // MarshalBinary returns the Val part, not including IEI and Len.
